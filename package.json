@@ -1,0 +1,31 @@
+{
+  "name": "ial2-claims-token",
+  "version": "0.1.0",
+  "description": "TypeScript types, Zod schemas, and a FHIR Patient mapping for the draft TEFCA IAL2 claim token",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "zod": "^4.1.0"
+  },
+  "dependencies": {
+    "@types/fhir": "^0.0.44"
+  }
+}
