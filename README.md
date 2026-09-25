@@ -46,3 +46,7 @@ const patient = toFhirPatient(claims);
 3. `legal_id` is described as "documents" (plural), but the spec shows one object. This package accepts one object or an array of them.
 4. `ssn_itin` is described as "Social security number", but its name includes ITIN. This package accepts any 9-digit number.
 5. `gender` ("as recorded at birth") is closer to US Core `birthsex` than to `Patient.gender`.
+
+## License
+
+[MIT](LICENSE)

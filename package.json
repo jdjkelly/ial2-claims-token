@@ -2,6 +2,7 @@
   "name": "ial2-claims-token",
   "version": "0.1.0",
   "description": "TypeScript types, Zod schemas, and a FHIR Patient mapping for the draft TEFCA IAL2 claim token",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
