@@ -8,6 +8,7 @@
  * - "Required if present": optional in the schema. The CSP MUST send the field
  *   if it holds the value, but a validator can't tell when that's the case.
  * - "For discussion" fields are optional and marked @experimental.
+ * - "SHALL NOT be populated" fields are rejected if present.
  * - `identity_assurance_level` is struck in the draft, replaced by `token_policy`.
  */
 import { z } from "zod";
@@ -32,8 +33,8 @@ const SsnOrItin = z
   .regex(/^\d{3}-?\d{2}-?\d{4}$/, "Expected 9-digit SSN/ITIN")
   .transform((s) => s.replace(/-/g, ""));
 
-/** ITINs always start with 9 (IRS format 9XX-XX-XXXX). */
-const Itin = SsnOrItin.refine((s) => s.startsWith("9"), "ITIN must begin with 9");
+/** For claims the spec says SHALL NOT be populated. */
+const NotPopulated = z.never("SHALL NOT be populated").optional();
 
 // ---------------------------------------------------------------------------
 // Sub-objects
@@ -45,35 +46,40 @@ export const TokenPolicySchema = z.strictObject({
 });
 export type TokenPolicy = z.infer<typeof TokenPolicySchema>;
 
-/** Prior or alternate *legal* name (not aliases, nicknames, or preferred names). */
-export const HistoricalNameSchema = z.object({
-  given_name: z.string().min(1).optional(),
-  middle_name: z.string().min(1).optional(),
-  last_name: z.string().min(1).optional(),
-  name_full: z.string().min(1),
-});
+/**
+ * Prior or alternate *legal* name (not aliases, nicknames, or preferred names).
+ * Shape is a proposal; the draft doesn't define one. Any part may be missing
+ * (e.g. only a prior family name), but not all of them.
+ */
+export const HistoricalNameSchema = z
+  .object({
+    given_name: z.string().min(1).optional(),
+    middle_name: z.string().min(1).optional(),
+    family_name: z.string().min(1).optional(),
+  })
+  .refine((n) => n.given_name || n.middle_name || n.family_name, "Expected at least one name part");
 export type HistoricalName = z.infer<typeof HistoricalNameSchema>;
 
-/** Same shape as the flat top-level address claims. */
+/** OIDC `address` claim, with the members the spec lists (no `formatted`). */
 export const PostalAddressSchema = z.object({
-  address_line1: z.string().min(1),
-  address_line2: z.string().min(1).optional(),
+  /** Full street address. May hold several lines, separated by "\n" (OIDC). */
+  street_address: z.string().min(1),
+  /** City or locality. */
   locality: z.string().min(1),
+  /** State, province, or region. */
   region: z.string().min(1),
+  /** ZIP or postal code. */
   postal_code: z.string().min(1),
   country: z.string().min(2),
-  full_address: z.string().min(1),
 });
 export type PostalAddress = z.infer<typeof PostalAddressSchema>;
 
-/** @experimental For discussion. Shape is a proposal; the draft only says "issuer". */
+/** @experimental For discussion. Government-issued legal ID, e.g. a driver's license or passport. */
 export const LegalIdSchema = z.object({
-  document_type: z.union([
-    z.enum(["drivers_license", "state_id", "passport", "passport_card"]),
-    z.string().min(1),
-  ]),
-  /** Issuing authority, e.g. "US-CA", "USA" (ISO 3166). */
-  issuer: z.string().min(1),
+  /** Issuing authority, e.g. "TX". */
+  legal_id_issuer: z.string().min(1),
+  /** Document number. */
+  id_number: z.string().min(1),
 });
 export type LegalId = z.infer<typeof LegalIdSchema>;
 
@@ -105,11 +111,12 @@ const OidcClaims = z.object({
 const NameClaims = z.object({
   /** Given name(s), space-separated if several. Required (TEFCA). */
   given_name: z.string().min(1),
+  /** Required if present. */
   middle_name: z.string().min(1).optional(),
-  last_name: z.string().min(1),
-  /** First + middle + last concatenated, or the string from the legal document. */
-  name_full: z.string().min(1),
-  name_historical: z.array(HistoricalNameSchema).optional(),
+  /** Surname(s) / last name(s). */
+  family_name: z.string().min(1),
+  /** Prior or alternate legal names. Required if present. */
+  historical_name: z.array(HistoricalNameSchema).optional(),
 });
 
 const DemographicClaims = z.object({
@@ -121,27 +128,31 @@ const DemographicClaims = z.object({
 const ContactClaims = z.object({
   /** Verified email. */
   email: z.email(),
+  /** SHALL NOT be populated. */
+  email_verified: NotPopulated,
   /** Verified primary phone. */
   phone_number: Phone,
-  phone_number_historical: z.array(Phone).optional(),
+  /** SHALL NOT be populated. */
+  phone_number_verified: NotPopulated,
+  /** Previous phone numbers. Optional. */
+  historical_phone_number: z.array(Phone).optional(),
 });
 
-const AddressClaims = PostalAddressSchema.extend({
+const AddressClaims = z.object({
+  address: PostalAddressSchema,
   /** Prior addresses. Required if present and validated by the CSP. */
-  address_historical: z.array(PostalAddressSchema).optional(),
+  historical_address: z.array(PostalAddressSchema).optional(),
 });
 
-const DiscussionClaims = z.object({
-  /** @experimental Full SSN or ITIN (9 digits). */
+const IdentifierClaims = z.object({
+  /** Full SSN or ITIN (9 digits). Optional. */
   ssn_itin: SsnOrItin.optional(),
-  /** @experimental Last 4 of SSN/ITIN. */
+  /** Last 4 of SSN/ITIN. Optional. */
   ssn_itin_short: z.string().regex(/^\d{4}$/).optional(),
-  /** @experimental CSP-specific per-person identifier. */
+  /** @experimental For discussion. CSP-specific per-person identifier. */
   uuid: z.string().min(1).optional(),
-  /** @experimental ITIN, for individuals without an SSN. */
-  itin: Itin.optional(),
-  /** @experimental Government-issued legal ID document(s). */
-  legal_id_issuer: z.union([LegalIdSchema, z.array(LegalIdSchema)]).optional(),
+  /** @experimental For discussion. Government-issued legal ID document(s). */
+  legal_id: z.union([LegalIdSchema, z.array(LegalIdSchema)]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -153,7 +164,7 @@ export const Ial2ClaimTokenShape = OidcClaims.extend(NameClaims.shape)
   .extend(DemographicClaims.shape)
   .extend(ContactClaims.shape)
   .extend(AddressClaims.shape)
-  .extend(DiscussionClaims.shape);
+  .extend(IdentifierClaims.shape);
 
 /** The decoded payload, after validation (SSN hyphens stripped, etc.). */
 export type Ial2ClaimToken = z.infer<typeof Ial2ClaimTokenShape>;
@@ -247,8 +258,7 @@ function toFhirAddress(a: PostalAddress, use: Address["use"]): Address {
   return {
     use,
     type: "physical",
-    text: a.full_address,
-    line: [a.address_line1, a.address_line2].filter((l): l is string => !!l),
+    line: a.street_address.split(/\r?\n/).map((l) => l.trim()).filter(Boolean),
     city: a.locality,
     state: a.region,
     postalCode: a.postal_code,
@@ -284,15 +294,13 @@ export function toFhirPatient(
   const name: HumanName[] = [
     {
       use: "official",
-      text: t.name_full,
-      family: t.last_name,
+      family: t.family_name,
       given: givens(t.given_name, t.middle_name),
     },
-    ...(t.name_historical ?? []).map(
+    ...(t.historical_name ?? []).map(
       (h): HumanName => ({
         use: "old",
-        text: h.name_full,
-        family: h.last_name,
+        family: h.family_name,
         given: givens(h.given_name, h.middle_name),
       }),
     ),
@@ -301,12 +309,12 @@ export function toFhirPatient(
   const telecom: ContactPoint[] = [
     { system: "phone", value: t.phone_number, rank: 1 },
     { system: "email", value: t.email },
-    ...(t.phone_number_historical ?? []).map((p): ContactPoint => ({ system: "phone", value: p, use: "old" })),
+    ...(t.historical_phone_number ?? []).map((p): ContactPoint => ({ system: "phone", value: p, use: "old" })),
   ];
 
   const address: Address[] = [
-    toFhirAddress(t, "home"),
-    ...(t.address_historical ?? []).map((a) => toFhirAddress(a, "old")),
+    toFhirAddress(t.address, "home"),
+    ...(t.historical_address ?? []).map((a) => toFhirAddress(a, "old")),
   ];
 
   return {
